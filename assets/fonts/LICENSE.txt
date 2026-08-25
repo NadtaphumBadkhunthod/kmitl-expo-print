@@ -1,0 +1,5 @@
+Sarabun is licensed under the SIL Open Font License, Version 1.1.
+Copyright (c) Cadson Demak.
+https://fonts.google.com/specimen/Sarabun
+The .woff2 files here are the Thai and Latin subsets, taken from Google Fonts
+and embedded in the report so the station never needs a font server or internet.

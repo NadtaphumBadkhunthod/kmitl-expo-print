@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>หน้าควบคุม — สถานีพิมพ์ PIPEK</title>
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; padding:22px 26px 40px; background:#0f172a; color:#e8edf5;
+         font-family:'Sarabun','Leelawadee UI',system-ui,sans-serif; font-size:15px; }
+  h1 { font-size:21px; margin:0 0 4px; font-weight:700; }
+  h1 small { color:#7c8da0; font-weight:400; font-size:14px; margin-left:10px; }
+  h2 { font-size:15px; margin:0 0 10px; color:#93a4b8; font-weight:600; }
+
+  .grid { display:grid; grid-template-columns:340px 1fr; gap:16px; align-items:start; }
+  .card { background:#1a2536; border:1px solid #26344a; border-radius:12px; padding:16px 18px; }
+  .card + .card { margin-top:16px; }
+
+  /* ---- setup ---- */
+  #joinqr { display:block; width:100%; max-width:250px; margin:0 auto 10px;
+            background:#fff; padding:8px; border-radius:10px; }
+  .url { text-align:center; font-size:15px; font-weight:700; word-break:break-all; color:#7dd3fc; }
+  .steps { margin:12px 0 0; padding-left:18px; color:#9fb0c4; font-size:13.5px; line-height:1.75; }
+  .steps b { color:#e8edf5; }
+
+  /* ---- stats ---- */
+  .stats { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; }
+  .stat { background:#111c2e; border-radius:9px; padding:11px 12px; }
+  .stat b { display:block; font-size:27px; font-weight:800; line-height:1.1;
+            font-variant-numeric:tabular-nums; }
+  .stat span { font-size:12.5px; color:#7c8da0; }
+  .qd b { color:#38bdf8; } .pr b { color:#4ade80; } .dv b { color:#c084fc; }
+  .ca b { color:#fbbf24; } .fa b { color:#f87171; }
+
+  /* ---- printer ---- */
+  .pline { display:flex; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+  select, input[type=text] { flex:1 1 240px; min-width:0; padding:9px 11px; border-radius:8px;
+          border:1px solid #33445f; background:#111c2e; color:#e8edf5;
+          font-family:inherit; font-size:14.5px; }
+  button { padding:9px 15px; border-radius:8px; border:1px solid #33445f; background:#22304a;
+           color:#e8edf5; font-family:inherit; font-size:14px; cursor:pointer; }
+  button:hover { background:#2c3d5c; }
+  button.warn { border-color:#7f1d1d; background:#4a1717; color:#fca5a5; }
+  button.go { border-color:#166534; background:#14532d; color:#86efac; }
+  button:disabled { opacity:.4; cursor:default; }
+
+  .pill { display:inline-block; padding:4px 12px; border-radius:999px; font-size:13.5px; font-weight:600; }
+  .ok { background:#14532d; color:#86efac; }
+  .bad { background:#7f1d1d; color:#fca5a5; }
+  .idle { background:#1e3a5f; color:#93c5fd; }
+
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th { text-align:left; color:#7c8da0; font-weight:600; padding:7px 10px;
+       border-bottom:1px solid #26344a; font-size:13px; }
+  td { padding:8px 10px; border-bottom:1px solid #1c2839; font-variant-numeric:tabular-nums; }
+  tr:last-child td { border-bottom:none; }
+  .muted { color:#7c8da0; }
+  .empty { color:#64748b; padding:14px 2px; font-size:14px; }
+
+  /* ---- settings ---- */
+  .opts { display:flex; flex-wrap:wrap; gap:16px; }
+  label.sw { display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer; }
+  input[type=checkbox] { width:17px; height:17px; accent-color:#38bdf8; }
+  #err { display:none; background:#4a1717; color:#fecaca; padding:11px 15px;
+         border-radius:10px; margin-bottom:14px; }
+  #err.show { display:block; }
+</style>
+</head>
+<body>
+
+<h1>สถานีพิมพ์ PIPEK <small id="clock"></small></h1>
+<div id="err"></div>
+
+<div class="grid">
+  <div>
+    <div class="card">
+      <h2>1 · ต่อมือถือ staff</h2>
+      <img id="joinqr" alt="">
+      <div class="url" id="joinurl">…</div>
+      <div id="alt" style="margin-top:9px;font-size:12.5px;color:#9fb0c4;text-align:center;line-height:1.7"></div>
+      <ol class="steps">
+        <li>เปิดกล้องมือถือ สแกน QR นี้</li>
+        <li>เจอหน้าเตือนสีแดง กด <b>ขั้นสูง → ดำเนินการต่อ</b></li>
+        <li>กด <b>เริ่มสแกน</b> แล้วอนุญาตกล้อง</li>
+        <li>เสร็จแล้ว — ต่อได้หลายเครื่องพร้อมกัน</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <h2>มือถือที่เชื่อมอยู่ (<span id="devcount">0</span>)</h2>
+      <table><tbody id="devs"></tbody></table>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>2 · เครื่องพิมพ์</h2>
+      <div class="pline">
+        <select id="printer"></select>
+        <button id="refresh" type="button">รีเฟรช</button>
+      </div>
+      <div class="pline">
+        <span id="pstatus" class="pill idle">กำลังตรวจสอบ…</span>
+        <span class="muted" id="pdetail"></span>
+      </div>
+      <div class="pline">
+        <button id="pause" type="button">หยุดพิมพ์ชั่วคราว</button>
+        <button id="resume" type="button" class="go">พิมพ์ต่อ</button>
+        <button id="clear" type="button" class="warn">ล้างคิวเครื่องพิมพ์</button>
+      </div>
+      <table><tbody id="pjobs"></tbody></table>
+    </div>
+
+    <div class="card">
+      <h2>3 · สถานะ</h2>
+      <div class="stats">
+        <div class="stat qd"><b id="s-queued">0</b><span>รอพิมพ์</span></div>
+        <div class="stat pr"><b id="s-printed">0</b><span>พิมพ์สำเร็จ</span></div>
+        <div class="stat dv"><b id="s-dup">0</b><span>สแกนซ้ำ</span></div>
+        <div class="stat ca"><b id="s-cancelled">0</b><span>ยกเลิก</span></div>
+        <div class="stat fa"><b id="s-failed">0</b><span>ไม่สำเร็จ</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>คิวงาน</h2>
+      <table>
+        <thead><tr><th>คิว</th><th>เวลา</th><th>คะแนน</th><th>สถานะ</th><th></th></tr></thead>
+        <tbody id="jobs"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>ตั้งค่า</h2>
+      <div class="pline">
+        <input type="text" id="eventName" placeholder="ชื่องาน">
+        <button id="saveName" type="button">บันทึก</button>
+      </div>
+      <div class="opts">
+        <label class="sw"><input type="checkbox" id="inkSaver"> ประหยัดหมึก</label>
+        <label class="sw"><input type="checkbox" id="showTicket"> พิมพ์เลขคิวบนใบ</label>
+        <label class="sw"><input type="checkbox" id="qrResult"> QR ชี้ไปหน้าผลตรวจ</label>
+        <label class="sw"><input type="checkbox" id="dryRun"> โหมดซ้อม (ไม่พิมพ์จริง)</label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id)
+const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c]))
+
+const post = (path, body) => fetch(path, {
+  method: 'POST', headers: { 'content-type': 'application/json' },
+  body: JSON.stringify(body ?? {}),
+}).then(r => r.json())
+
+function fail(msg) {
+  $('err').textContent = msg
+  $('err').classList.toggle('show', !!msg)
+}
+
+/* ---- setup panel: only needs fetching once ---- */
+fetch('/api/joinqr').then(r => r.json()).then(d => {
+  $('joinqr').src = d.dataUrl
+  $('joinurl').textContent = d.url
+  // Only real network adapters are worth offering as a fallback; a WSL/Hyper-V
+  // address is never reachable from a phone.
+  const alt = (d.alternates ?? []).filter(a => !a.virtual)
+  if (alt.length) $('alt').innerHTML = 'ถ้าต่อไม่ได้ ลองที่อยู่นี้แทน:<br>' +
+    alt.map(a => '<b>' + esc(a.url) + '</b> <span class="muted">' + esc(a.adapter) + '</span>').join('<br>')
+}).catch(() => {})
+
+/* ---- printer list ---- */
+let printersLoaded = false
+async function loadPrinters() {
+  const d = await fetch('/api/printers').then(r => r.json()).catch(() => null)
+  if (!d?.ok) return
+  $('printer').innerHTML = '<option value="">— เลือกเครื่องพิมพ์ —</option>' +
+    d.printers.map(p => `<option value="${esc(p.name)}"${p.name === d.selected ? ' selected' : ''}>` +
+      esc(p.name) + (p.virtual ? '  (พิมพ์ลงไฟล์ ไม่ออกกระดาษ)' : '') +
+      (p.offline ? '  [ออฟไลน์]' : '') + '</option>').join('')
+  printersLoaded = true
+}
+$('printer').onchange = async e => {
+  const r = await post('/api/config', { printer: e.target.value })
+  if (!r.ok) fail(r.error); else { fail(''); tick() }
+}
+$('refresh').onclick = () => { loadPrinters(); post('/api/printer/refresh').then(tick) }
+$('pause').onclick  = () => post('/api/printer/pause').then(tick)
+$('resume').onclick = () => post('/api/printer/resume').then(tick)
+$('clear').onclick  = () => confirm('ลบงานที่ค้างในคิวเครื่องพิมพ์ทั้งหมด?') &&
+  post('/api/printer/clear').then(tick)
+
+/* ---- settings ---- */
+for (const [id, key] of [['inkSaver','inkSaver'], ['showTicket','showTicket'], ['dryRun','dryRun']])
+  $(id).onchange = e => post('/api/config', { [key]: e.target.checked }).then(() => tick())
+$('qrResult').onchange = e =>
+  post('/api/config', { qrMode: e.target.checked ? 'result' : 'site' }).then(() => tick())
+$('saveName').onclick = () =>
+  post('/api/config', { eventName: $('eventName').value }).then(() => tick())
+
+/* ---- main poll ---- */
+let nameFocused = false
+$('eventName').onfocus = () => nameFocused = true
+$('eventName').onblur = () => nameFocused = false
+
+const STATE_TH = { queued:'รอคิว', rendering:'กำลังจัดหน้า', printing:'กำลังพิมพ์',
+                   done:'พิมพ์แล้ว', failed:'ไม่สำเร็จ', cancelled:'ยกเลิกแล้ว' }
+
+async function tick() {
+  $('clock').textContent = new Date().toLocaleTimeString('th-TH')
+  let d
+  try {
+    d = await fetch('/api/control').then(r => r.json())
+  } catch {
+    return fail('ติดต่อ server ไม่ได้ — หน้าต่าง server ยังเปิดอยู่ไหม?')
+  }
+  fail('')
+  if (!printersLoaded) loadPrinters()
+
+  for (const k of ['queued', 'printed', 'dup', 'cancelled', 'failed'])
+    $('s-' + k).textContent = d.stats[k] ?? 0
+
+  // printer
+  const p = d.printer
+  const pill = $('pstatus')
+  if (!d.config.printer) {
+    pill.className = 'pill bad'; pill.textContent = 'ยังไม่ได้เลือกเครื่องพิมพ์'
+    $('pdetail').textContent = 'เลือกจากรายการด้านบนก่อนเริ่มงาน'
+  } else if (!p) {
+    pill.className = 'pill idle'; pill.textContent = 'กำลังตรวจสอบ…'; $('pdetail').textContent = ''
+  } else if (!p.found) {
+    pill.className = 'pill bad'; pill.textContent = 'ไม่พบเครื่องพิมพ์'
+    $('pdetail').textContent = p.error ?? 'ถูกถอดออกหรือเปลี่ยนชื่อ'
+  } else {
+    pill.className = 'pill ' + (p.ok ? 'ok' : 'bad')
+    pill.textContent = p.status
+    $('pdetail').textContent = 'งานค้างในเครื่องพิมพ์ ' + p.jobs.length +
+      ' · ตรวจเมื่อ ' + p.at + (d.config.dryRun ? ' · โหมดซ้อม ไม่พิมพ์จริง' : '')
+  }
+  $('pause').disabled = !p?.found || p.paused
+  $('resume').disabled = !p?.found || !p.paused
+  $('pjobs').innerHTML = (p?.jobs ?? []).map(j =>
+    `<tr><td>#${j.id}</td><td class="muted">${esc(j.name)}</td>` +
+    `<td><span class="pill ${j.bad ? 'bad' : 'idle'}">${esc(j.status)}</span></td>` +
+    `<td style="text-align:right"><button class="warn" onclick="killJob(${j.id})">ลบ</button></td></tr>`
+  ).join('') || ''
+
+  // devices
+  $('devcount').textContent = d.devices.length
+  $('devs').innerHTML = d.devices.map(v =>
+    `<tr><td><span class="pill ok">●</span></td><td>${esc(v.ip || v.id)}</td>` +
+    `<td class="muted">สแกน ${v.scans}</td></tr>`
+  ).join('') || '<tr><td class="empty">ยังไม่มีมือถือเชื่อมต่อ — สแกน QR ทางซ้าย</td></tr>'
+
+  // jobs
+  $('jobs').innerHTML = d.jobs.map(j =>
+    `<tr><td><b>${esc(j.ticket)}</b></td><td class="muted">${esc(j.at)}</td>` +
+    `<td>${j.score == null ? '—' : Math.round(j.score)}</td>` +
+    `<td><span class="pill ${j.state === 'failed' ? 'bad' : j.state === 'done' ? 'ok' : 'idle'}">` +
+    `${esc(STATE_TH[j.state] ?? j.state)}</span>${j.error ? ' <span class="muted">' + esc(j.error) + '</span>' : ''}</td>` +
+    `<td style="text-align:right">${j.cancellable
+      ? `<button class="warn" onclick="cancelTicket('${esc(j.ticket)}')">ยกเลิก</button>` : ''}</td></tr>`
+  ).join('') || '<tr><td colspan="5" class="empty">ยังไม่มีการสแกน</td></tr>'
+
+  // settings (don't fight the user while they type)
+  $('inkSaver').checked = d.config.inkSaver
+  $('showTicket').checked = d.config.showTicket
+  $('qrResult').checked = d.config.qrMode === 'result'
+  $('dryRun').checked = d.config.dryRun
+  if (!nameFocused) $('eventName').value = d.config.eventName ?? ''
+}
+
+window.killJob = id => post('/api/printer/job', { id }).then(tick)
+window.cancelTicket = t => post('/api/cancel/' + t).then(r => { if (!r.ok) fail(r.error); tick() })
+
+tick(); setInterval(tick, 2000)
+</script>
+</body>
+</html>

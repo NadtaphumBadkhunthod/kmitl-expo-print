@@ -1,0 +1,19 @@
+{
+  "name": "kmitl-expo-print",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "printers": "node -e \"import('pdf-to-printer').then(m=>m.default.getPrinters()).then(p=>p.forEach(x=>console.log(x.name)))\"",
+    "preview": "node preview.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "jsqr": "^1.4.0",
+    "pdf-to-printer": "^5.6.0",
+    "puppeteer": "^23.11.1",
+    "qrcode": "^1.5.4",
+    "selfsigned": "^2.4.1"
+  }
+}

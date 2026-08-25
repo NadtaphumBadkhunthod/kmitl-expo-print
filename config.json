@@ -1,0 +1,15 @@
+{
+  "eventName": "KMITL EXPO 2026",
+  "printer": "HP9C8AB3 (HP Smart Tank 510 series)",
+  "port": 8443,
+  "inkSaver": false,
+  "keepPDFs": false,
+  "printOptions": {
+    "paperSize": "A4",
+    "scale": "noscale"
+  },
+  "dryRun": false,
+  "qrMode": "result",
+  "qrSite": "https://smartcity.kmitl.ac.th",
+  "showTicket": false
+}

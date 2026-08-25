@@ -1,0 +1,16 @@
+node_modules/
+
+# Self-signed TLS keypair - regenerated on first run, and key.pem is a private key.
+certs/
+
+# Rendered reports on their way to the printer.
+tmp/
+
+# Every scanned QR, which means every visitor's health results. Never commit.
+logs/*.csv
+
+# Local render output - preview.pdf holds a real person's measurements.
+preview.pdf
+preview.png
+preview.html
+check-fit.png

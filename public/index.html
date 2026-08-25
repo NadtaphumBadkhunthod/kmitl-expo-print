@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0f172a">
+<title>สแกนพิมพ์ผลตรวจ</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; height:100%; overflow:hidden; background:#0f172a; color:#f8fafc;
+               font-family:'Sarabun','Leelawadee UI',system-ui,sans-serif; user-select:none; }
+  video { position:fixed; inset:0; width:100%; height:100%; object-fit:cover; }
+
+  #ui { position:fixed; inset:0; display:flex; flex-direction:column; }
+
+  #bar { display:flex; align-items:center; gap:9px; font-size:13px;
+         padding:calc(env(safe-area-inset-top) + 10px) 14px 10px;
+         background:linear-gradient(#0f172aee,#0f172a00); }
+  #dot { width:9px; height:9px; border-radius:50%; background:#64748b; flex:none; }
+  #dot.on { background:#22c55e; } #dot.off { background:#ef4444; }
+  #counts { margin-left:auto; opacity:.85; font-variant-numeric:tabular-nums; text-align:right; }
+  #torch { padding:7px 12px; border-radius:999px; border:1px solid #ffffff44;
+           background:#00000055; color:#f8fafc; font-size:13px; font-family:inherit; }
+  #torch.on { background:#fbbf24; color:#0f172a; border-color:#fbbf24; }
+  #warn { margin:0 14px; padding:8px 12px; border-radius:10px; font-size:13.5px;
+          background:#7f1d1d; color:#fecaca; display:none; }
+  #warn.show { display:block; }
+
+  #reticle { flex:1; display:grid; place-items:center; }
+  #reticle div { width:63vw; max-width:290px; aspect-ratio:1; border-radius:26px;
+                 box-shadow:0 0 0 100vmax #0f172a99; outline:2.5px solid #ffffffcc; outline-offset:-2px; }
+
+  #panel { padding:14px 14px calc(env(safe-area-inset-bottom) + 16px); text-align:center;
+           background:linear-gradient(#0f172a00,#0f172aee 32%); }
+  #ticket { font-size:64px; font-weight:800; line-height:1; letter-spacing:-2px; min-height:64px;
+            font-variant-numeric:tabular-nums; }
+  #msg { font-size:16px; margin-top:6px; min-height:24px; font-weight:600; }
+  #hint { font-size:12.5px; opacity:.6; margin-top:8px; }
+  #cancel { display:none; margin:10px auto 0; padding:11px 26px; border-radius:999px;
+            border:2px solid #f87171; background:#7f1d1d; color:#fecaca;
+            font-family:inherit; font-size:16px; font-weight:700; }
+  #cancel.show { display:block; }
+
+  #flash { position:fixed; inset:0; opacity:0; pointer-events:none; transition:opacity .18s; }
+  #flash.go { opacity:.42; transition:none; }
+
+  /* Nothing scans until a person taps Start. That tap is also what unlocks the
+     camera and the beep on mobile browsers, so it is not just a confirmation. */
+  #gate { position:fixed; inset:0; z-index:5; display:grid; place-items:center; padding:26px;
+          background:#0f172a; text-align:center; }
+  #gate.hide { display:none; }
+  #gate h1 { font-size:23px; margin:0 0 6px; }
+  #gate p { font-size:15px; opacity:.7; margin:0 0 26px; line-height:1.6; }
+  #start { padding:20px 46px; border-radius:999px; border:none; background:#22c55e; color:#052e16;
+           font-family:inherit; font-size:21px; font-weight:800; }
+  #gate small { display:block; margin-top:22px; font-size:13px; opacity:.5; line-height:1.6; }
+
+  #fatal { position:fixed; inset:0; z-index:6; display:none; place-items:center; padding:28px;
+           background:#0f172a; text-align:center; font-size:15px; line-height:1.65; }
+  #fatal.show { display:grid; }
+</style>
+</head>
+<body>
+
+<video id="cam" playsinline muted autoplay></video>
+<div id="flash"></div>
+
+<div id="ui">
+  <div id="bar">
+    <span id="dot"></span><span id="state">กำลังเชื่อมต่อ…</span>
+    <button id="torch" type="button" hidden>ไฟฉาย</button>
+    <span id="counts"></span>
+  </div>
+  <div id="warn"></div>
+
+  <div id="reticle"><div></div></div>
+
+  <div id="panel">
+    <div id="ticket"></div>
+    <div id="msg">เล็ง QR ในกรอบ — พิมพ์อัตโนมัติ</div>
+    <button id="cancel" type="button">ยกเลิกคิวนี้</button>
+    <div id="hint">ไม่ต้องกดอะไร &middot; แตะค้างที่พื้นหลัง 1 วินาที = พิมพ์ซ้ำ</div>
+  </div>
+</div>
+
+<div id="gate">
+  <div>
+    <h1>สถานีพิมพ์ผลตรวจ</h1>
+    <p>กดเริ่ม แล้วเล็งกล้องไปที่ QR ของผู้เข้าชม<br>ระบบจะสั่งพิมพ์ให้อัตโนมัติ</p>
+    <button id="start" type="button">เริ่มสแกน</button>
+    <small>ยกเลิกได้ทันหากยังไม่ถึงคิว<br>เครื่องนี้จะแสดงในหน้าควบคุมบนโน้ตบุ๊ก</small>
+  </div>
+</div>
+
+<div id="fatal"></div>
+
+<script src="vendor/jsQR.js"></script>
+<script>
+const $ = id => document.getElementById(id)
+const cam = $('cam'), flash = $('flash')
+
+// A stable id per phone so the control page can count devices rather than hits.
+const DEVICE = (() => {
+  let v = null
+  try { v = localStorage.getItem('pipek-device') } catch {}
+  if (!v) {
+    v = 'd' + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4)
+    try { localStorage.setItem('pipek-device', v) } catch {}
+  }
+  return v
+})()
+
+let lastScan = { text: '', at: 0 }   // suppress the camera's own repeat detections
+let current = null                   // ticket currently shown, if still cancellable
+let lastTicket = null
+let busy = false
+
+/* ------------------------------------------------------------- feedback --- */
+
+let audio
+function beep(freq, ms) {
+  try {
+    audio ??= new (window.AudioContext || window.webkitAudioContext)()
+    const osc = audio.createOscillator(), gain = audio.createGain()
+    osc.frequency.value = freq
+    osc.connect(gain); gain.connect(audio.destination)
+    gain.gain.setValueAtTime(0.001, audio.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.25, audio.currentTime + 0.01)
+    gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + ms / 1000)
+    osc.start(); osc.stop(audio.currentTime + ms / 1000)
+  } catch {}
+}
+
+function signal(kind, ticket, message) {
+  const tone = { ok: [1050, 130], dup: [640, 190], err: [240, 420] }[kind]
+  const wash = { ok: '#22c55e', dup: '#f59e0b', err: '#ef4444' }[kind]
+  beep(tone[0], tone[1])
+  navigator.vibrate?.(kind === 'ok' ? 60 : [80, 60, 80])
+  flash.style.background = wash
+  flash.classList.add('go')
+  setTimeout(() => flash.classList.remove('go'), 130)
+  $('ticket').textContent = ticket ?? ''
+  $('ticket').style.color = wash
+  $('msg').textContent = message
+  $('msg').style.color = wash
+}
+
+function showCancel(ticket) {
+  current = ticket
+  $('cancel').classList.toggle('show', !!ticket)
+  if (ticket) $('cancel').textContent = 'ยกเลิกคิว ' + ticket
+}
+
+/* ------------------------------------------------------------- printing --- */
+
+const post = (path, body) => fetch(path, {
+  method: 'POST', headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ device: DEVICE, ...body }),
+}).then(r => r.json().then(j => ({ status: r.status, ...j })))
+
+async function send(scanned) {
+  busy = true
+  showCancel(null)
+  $('msg').textContent = 'กำลังส่ง…'
+  try {
+    const data = await post('/api/print', { scanned })
+    if (!data.ok) {
+      signal('err', null, data.error || 'ผิดพลาด')
+    } else if (data.duplicate) {
+      signal('dup', data.ticket, 'สแกนซ้ำ — พิมพ์ไปแล้ว')
+      lastTicket = data.ticket
+    } else {
+      signal('ok', data.ticket, data.queued > 1 ? 'เข้าคิว (รออีก ' + (data.queued - 1) + ')' : 'กำลังพิมพ์')
+      lastTicket = data.ticket
+      showCancel(data.ticket)
+      // The cancel window closes the moment the job reaches the spooler.
+      setTimeout(() => { if (current === data.ticket) showCancel(null) }, 9000)
+    }
+    refresh()
+  } catch {
+    // Almost always the phone falling off the hotspot. Say so plainly - "network
+    // error" sends staff hunting the wrong problem.
+    signal('err', null, 'ต่อโน้ตบุ๊กไม่ได้ — เช็ค WiFi')
+    setStatus(false)
+  } finally {
+    setTimeout(() => { busy = false }, 900)
+  }
+}
+
+$('cancel').onclick = async e => {
+  e.stopPropagation()
+  const t = current
+  if (!t) return
+  showCancel(null)
+  const r = await post('/api/cancel/' + t).catch(() => null)
+  if (r?.ok) signal('dup', t, 'ยกเลิกแล้ว')
+  else signal('err', t, r?.error || 'ยกเลิกไม่สำเร็จ')
+  refresh()
+}
+
+$('panel').addEventListener('contextmenu', e => e.preventDefault())
+let holdTimer
+const holdStart = e => {
+  if (e.target.id === 'cancel') return
+  holdTimer = setTimeout(async () => {
+    if (!lastTicket) return
+    navigator.vibrate?.(120)
+    const r = await post('/api/reprint/' + lastTicket).catch(() => null)
+    if (r?.ok) { signal('ok', r.ticket, 'พิมพ์ซ้ำของคิว ' + r.reprintOf); showCancel(r.ticket) }
+    else signal('err', null, 'สั่งพิมพ์ซ้ำไม่สำเร็จ')
+  }, 1000)
+}
+const holdEnd = () => clearTimeout(holdTimer)
+$('panel').addEventListener('pointerdown', holdStart)
+for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) $('panel').addEventListener(ev, holdEnd)
+
+/* --------------------------------------------------------------- status --- */
+
+function setStatus(online) {
+  $('dot').className = online ? 'on' : 'off'
+  $('state').textContent = online ? 'เชื่อมต่อแล้ว' : 'ขาดการเชื่อมต่อ'
+}
+
+async function refresh() {
+  try {
+    const s = await fetch('/api/status', { headers: { 'x-device-id': DEVICE } }).then(r => r.json())
+    setStatus(true)
+    $('counts').innerHTML = 'พิมพ์แล้ว ' + s.printed + (s.queued ? ' · คิว ' + s.queued : '') +
+      '<br>เครื่องที่ต่ออยู่ ' + s.devices
+    const bad = !s.printer ? 'ยังไม่ได้เลือกเครื่องพิมพ์ที่หน้าควบคุม'
+              : s.printerVirtual ? 'เลือกเครื่องพิมพ์ที่พิมพ์ลงไฟล์อยู่ — จะไม่ออกกระดาษ'
+              : s.printerOk === false ? 'เครื่องพิมพ์มีปัญหา — ดูหน้าควบคุม' : ''
+    $('warn').textContent = bad
+    $('warn').classList.toggle('show', !!bad)
+
+    // A job fails after the phone has already said "กำลังพิมพ์", so the person
+    // holding the visitor needs to be told - and told they can just scan again.
+    if (s.failure) {
+      signal('err', s.failure.ticket, 'คิว ' + s.failure.ticket + ' พิมพ์ไม่สำเร็จ')
+      $('hint').textContent = s.failure.error + ' — แก้แล้วสแกน QR เดิมซ้ำได้เลย'
+      lastScan = { text: '', at: 0 }   // let the same code through again straight away
+    }
+  } catch { setStatus(false) }
+}
+setInterval(refresh, 4000)
+setInterval(() => post('/api/hello').catch(() => {}), 6000)
+
+/* -------------------------------------------------------------- scanning --- */
+
+function onDetect(text) {
+  const t = Date.now()
+  // The camera reports the same code every frame while it is in view; only the
+  // first one is a new visitor.
+  if (busy || (text === lastScan.text && t - lastScan.at < 4000)) return
+  lastScan = { text, at: t }
+  send(text)
+}
+
+function fatal(html) { $('fatal').innerHTML = html; $('fatal').classList.add('show') }
+
+async function start() {
+  $('gate').classList.add('hide')
+  beep(880, 60)          // unlock audio while we still have the tap gesture
+  post('/api/hello').catch(() => {})
+  refresh()
+
+  if (!window.isSecureContext) {
+    return fatal('<div><b>เปิดกล้องไม่ได้</b><br><br>ต้องเข้าผ่าน <b>https://</b> เท่านั้น' +
+                 '<br>เบราว์เซอร์จะไม่ให้สิทธิ์กล้องบน http<br><br>' +
+                 'ลองเปิดใหม่โดยพิมพ์ https:// นำหน้า IP</div>')
+  }
+
+  let stream
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    })
+  } catch (err) {
+    return fatal('<div><b>เข้าถึงกล้องไม่ได้</b><br><br>' + err.name +
+                 '<br><br>เปิดสิทธิ์กล้องให้เว็บนี้ในตั้งค่าเบราว์เซอร์ แล้วรีเฟรช</div>')
+  }
+
+  cam.srcObject = stream
+  await cam.play()
+
+  const track = stream.getVideoTracks()[0]
+  if (track.getCapabilities?.().torch) {
+    const btn = $('torch')
+    btn.hidden = false
+    btn.onclick = () => {
+      const on = !btn.classList.contains('on')
+      track.applyConstraints({ advanced: [{ torch: on }] })
+        .then(() => btn.classList.toggle('on', on)).catch(() => {})
+    }
+  }
+
+  // Keep the screen alive - it is a fixed station, and a phone that sleeps every
+  // 30s is a phone a staff member has to wake before every visitor.
+  const keepAwake = () => navigator.wakeLock?.request('screen').catch(() => {})
+  keepAwake()
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && keepAwake())
+
+  // Native detector where it exists (Chrome/Android), jsQR everywhere else (iOS).
+  if ('BarcodeDetector' in window &&
+      (await BarcodeDetector.getSupportedFormats()).includes('qr_code')) {
+    const det = new BarcodeDetector({ formats: ['qr_code'] })
+    const tick = async () => {
+      try {
+        const codes = await det.detect(cam)
+        if (codes.length) onDetect(codes[0].rawValue)
+      } catch {}
+      setTimeout(tick, 120)
+    }
+    tick()
+  } else {
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    const tick = () => {
+      if (cam.videoWidth) {
+        const scale = 640 / Math.max(cam.videoWidth, 1)
+        canvas.width = Math.round(cam.videoWidth * scale)
+        canvas.height = Math.round(cam.videoHeight * scale)
+        ctx.drawImage(cam, 0, 0, canvas.width, canvas.height)
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height)
+        const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' })
+        if (code?.data) onDetect(code.data)
+      }
+      setTimeout(tick, 140)
+    }
+    tick()
+  }
+}
+
+$('start').onclick = start
+refresh()
+</script>
+</body>
+</html>
