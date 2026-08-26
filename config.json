@@ -9,7 +9,5 @@
     "scale": "noscale"
   },
   "dryRun": false,
-  "qrMode": "result",
-  "qrSite": "https://smartcity.kmitl.ac.th",
   "showTicket": false
 }

@@ -2,7 +2,6 @@
 // fails if it spills onto a second page. Run this after any edit to the layout.
 import fs from 'node:fs'
 import puppeteer from 'puppeteer'
-import { buildQR } from './lib/qr.mjs'
 import { COLUMNS, SUMMARY } from './lib/layout.mjs'
 import { buildHTML } from './lib/report.mjs'
 
@@ -16,13 +15,8 @@ for (const col of COLUMNS) for (const sec of col) for (const r of sec.rows) {
 }
 for (const s of SUMMARY) values[s.id] = 5
 
-// Use the real QR path: result mode needs a taller header, so testing with a
-// stand-in code would miss the case that actually overflows.
-const LONG_URL = 'https://aqn.iamhtlife.com:8382/?r=' + 'A'.repeat(360)
-const qr = await buildQR(CONFIG, LONG_URL)
 const html = buildHTML({
   ticket: '888', measuredAt: '31/12/2026 23:59', values,
-  qrDataUrl: qr.dataUrl, qrBig: qr.big,
   eventName: CONFIG.eventName + ' — ทดสอบชื่องานที่ยาวมากเพื่อกันบรรทัดตก', inkSaver: CONFIG.inkSaver,
   showTicket: CONFIG.showTicket !== false,
 })

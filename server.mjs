@@ -18,7 +18,6 @@ import pdfToPrinter from 'pdf-to-printer'   // CommonJS - no named exports
 
 import { decode } from './lib/decode.mjs'
 import { buildHTML } from './lib/report.mjs'
-import { buildQR } from './lib/qr.mjs'
 import * as printer from './lib/printer.mjs'
 
 const { print: printPDF } = pdfToPrinter
@@ -51,13 +50,10 @@ const now = () => new Date().toLocaleTimeString('th-TH')
 /* --------------------------------------------------------------- render --- */
 
 async function renderPDF(job) {
-  const qr = await buildQR(CONFIG, job.scanned)
   const html = buildHTML({
     ticket: job.ticket,
     measuredAt: job.measuredAt,
     values: job.values,
-    qrDataUrl: qr.dataUrl,
-    qrBig: qr.big,
     eventName: CONFIG.eventName,
     inkSaver: CONFIG.inkSaver,
     showTicket: CONFIG.showTicket !== false,
@@ -348,7 +344,7 @@ async function sweepPrinter({ force = false } = {}) {
 app.get('/api/control', (_req, res) => res.json({
   config: {
     printer: CONFIG.printer || '', eventName: CONFIG.eventName, inkSaver: !!CONFIG.inkSaver,
-    dryRun: !!CONFIG.dryRun, qrMode: CONFIG.qrMode ?? 'result', showTicket: CONFIG.showTicket !== false,
+    dryRun: !!CONFIG.dryRun, showTicket: CONFIG.showTicket !== false,
   },
   stats: { ...stats, queued: queueDepth() },
   printer: lastPrinterState,
@@ -396,7 +392,6 @@ app.post('/api/config', async (req, res) => {
     await sweepPrinter({ force: true })
   }
   for (const k of ['inkSaver', 'dryRun', 'showTicket']) if (k in patch) CONFIG[k] = !!patch[k]
-  if (patch.qrMode === 'site' || patch.qrMode === 'result') CONFIG.qrMode = patch.qrMode
   if (typeof patch.eventName === 'string') CONFIG.eventName = patch.eventName.slice(0, 60)
   saveConfig()
   console.log('ตั้งค่าใหม่:', JSON.stringify(patch))

@@ -11,7 +11,6 @@ import { fileURLToPath } from 'node:url'
 import puppeteer from 'puppeteer'
 import { decode } from './lib/decode.mjs'
 import { buildHTML } from './lib/report.mjs'
-import { buildQR } from './lib/qr.mjs'
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url))
 const CONFIG = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'))
@@ -25,13 +24,10 @@ if (!scanned) {
 const { measuredAt, values } = decode(scanned)
 console.log('วัดเมื่อ:', measuredAt, '| ถอดค่าได้', Object.keys(values).length, 'ค่า')
 
-const qr = await buildQR(CONFIG, scanned)
 const html = buildHTML({
   ticket: '000',
   measuredAt,
   values,
-  qrDataUrl: qr.dataUrl,
-  qrBig: qr.big,
   eventName: CONFIG.eventName,
   inkSaver: CONFIG.inkSaver,
   showTicket: CONFIG.showTicket !== false,

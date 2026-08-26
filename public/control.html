@@ -139,7 +139,6 @@
       <div class="opts">
         <label class="sw"><input type="checkbox" id="inkSaver"> ประหยัดหมึก</label>
         <label class="sw"><input type="checkbox" id="showTicket"> พิมพ์เลขคิวบนใบ</label>
-        <label class="sw"><input type="checkbox" id="qrResult"> QR ชี้ไปหน้าผลตรวจ</label>
         <label class="sw"><input type="checkbox" id="dryRun"> โหมดซ้อม (ไม่พิมพ์จริง)</label>
       </div>
     </div>
@@ -195,8 +194,6 @@ $('clear').onclick  = () => confirm('ลบงานที่ค้างใน�
 /* ---- settings ---- */
 for (const [id, key] of [['inkSaver','inkSaver'], ['showTicket','showTicket'], ['dryRun','dryRun']])
   $(id).onchange = e => post('/api/config', { [key]: e.target.checked }).then(() => tick())
-$('qrResult').onchange = e =>
-  post('/api/config', { qrMode: e.target.checked ? 'result' : 'site' }).then(() => tick())
 $('saveName').onclick = () =>
   post('/api/config', { eventName: $('eventName').value }).then(() => tick())
 
@@ -267,7 +264,6 @@ async function tick() {
   // settings (don't fight the user while they type)
   $('inkSaver').checked = d.config.inkSaver
   $('showTicket').checked = d.config.showTicket
-  $('qrResult').checked = d.config.qrMode === 'result'
   $('dryRun').checked = d.config.dryRun
   if (!nameFocused) $('eventName').value = d.config.eventName ?? ''
 }
