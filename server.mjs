@@ -281,6 +281,10 @@ app.post('/api/cancel/:ticket', (req, res) => {
 app.post('/api/reprint/:ticket', (req, res) => {
   const src = byTicket.get(req.params.ticket)
   if (!src) return res.status(404).json({ ok: false, error: 'ไม่พบคิวนี้' })
+  // Queueing a second copy of something still waiting to print just wastes a
+  // sheet; that job has not had its chance yet.
+  if (cancellable(src) || src.state === 'printing')
+    return res.status(409).json({ ok: false, error: 'คิวนี้ยังรอพิมพ์อยู่' })
   const job = { ...src, ticket: pad(++ticketSeq), at: new Date().toLocaleString('th-TH'),
                 state: 'queued', file: undefined, error: undefined }
   byTicket.set(job.ticket, job)
@@ -403,13 +407,19 @@ app.post('/api/printer/:action', async (req, res) => {
   if (!name) return res.status(400).json({ ok: false, error: 'ยังไม่ได้เลือกเครื่องพิมพ์' })
   try {
     const { action } = req.params
+    let note = null
     if (action === 'pause') await printer.pause(name)
     else if (action === 'resume') await printer.resume(name)
     else if (action === 'clear') await printer.cancelAll(name)
-    else if (action === 'job') await printer.cancelJob(name, req.body?.id)
+    else if (action === 'job') {
+      // 'gone' means Windows had already flushed it - worth saying so, because
+      // the row disappearing on its own otherwise looks like the click missed.
+      if (await printer.cancelJob(name, req.body?.id) === 'gone')
+        note = 'งานนี้ออกจากคิวไปก่อนแล้ว'
+    }
     else if (action !== 'refresh') return res.status(404).json({ ok: false, error: 'ไม่รู้จักคำสั่งนี้' })
-    await sweepPrinter()
-    res.json({ ok: true, printer: lastPrinterState })
+    await sweepPrinter({ force: true })
+    res.json({ ok: true, note, printer: lastPrinterState })
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message })
   }

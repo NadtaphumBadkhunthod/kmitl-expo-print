@@ -64,6 +64,8 @@
   #err { display:none; background:#4a1717; color:#fecaca; padding:11px 15px;
          border-radius:10px; margin-bottom:14px; }
   #err.show { display:block; }
+  /* The same strip carries confirmations, which should not look like failures. */
+  #err.note { background:#14532d; color:#bbf7d0; }
 </style>
 </head>
 <body>
@@ -154,9 +156,22 @@ const post = (path, body) => fetch(path, {
   body: JSON.stringify(body ?? {}),
 }).then(r => r.json())
 
-function fail(msg) {
+// note = true for anything that went right and is just worth reading.
+//
+// Messages have to outlive the 2s poll: tick() used to clear this strip on every
+// pass, so an error from a button was on screen for a few hundred milliseconds
+// and the button looked like it had done nothing at all.
+let msgUntil = 0
+function fail(msg, note = false) {
   $('err').textContent = msg
   $('err').classList.toggle('show', !!msg)
+  $('err').classList.toggle('note', !!msg && note)
+  msgUntil = msg ? Date.now() + 6000 : 0
+}
+
+/** Clear whatever is on the strip, unless it is still within its few seconds. */
+function clearMsg() {
+  if (Date.now() >= msgUntil) fail('')
 }
 
 /* ---- setup panel: only needs fetching once ---- */
@@ -185,11 +200,16 @@ $('printer').onchange = async e => {
   const r = await post('/api/config', { printer: e.target.value })
   if (!r.ok) fail(r.error); else { fail(''); tick() }
 }
-$('refresh').onclick = () => { loadPrinters(); post('/api/printer/refresh').then(tick) }
-$('pause').onclick  = () => post('/api/printer/pause').then(tick)
-$('resume').onclick = () => post('/api/printer/resume').then(tick)
-$('clear').onclick  = () => confirm('ลบงานที่ค้างในคิวเครื่องพิมพ์ทั้งหมด?') &&
-  post('/api/printer/clear').then(tick)
+// Every one of these used to swallow its result, so a refused command looked
+// exactly like a dead button.
+const cmd = action => post('/api/printer/' + action)
+  .then(r => { fail(r.ok ? (r.note ?? '') : (r.error ?? 'สั่งงานไม่สำเร็จ'), r.ok); tick() })
+  .catch(() => fail('ติดต่อ server ไม่ได้'))
+
+$('refresh').onclick = () => { loadPrinters(); cmd('refresh') }
+$('pause').onclick  = () => cmd('pause')
+$('resume').onclick = () => cmd('resume')
+$('clear').onclick  = () => confirm('ลบงานที่ค้างในคิวเครื่องพิมพ์ทั้งหมด?') && cmd('clear')
 
 /* ---- settings ---- */
 for (const [id, key] of [['inkSaver','inkSaver'], ['showTicket','showTicket'], ['dryRun','dryRun']])
@@ -213,7 +233,7 @@ async function tick() {
   } catch {
     return fail('ติดต่อ server ไม่ได้ — หน้าต่าง server ยังเปิดอยู่ไหม?')
   }
-  fail('')
+  clearMsg()
   if (!printersLoaded) loadPrinters()
 
   for (const k of ['queued', 'printed', 'dup', 'cancelled', 'failed'])
@@ -258,7 +278,9 @@ async function tick() {
     `<td><span class="pill ${j.state === 'failed' ? 'bad' : j.state === 'done' ? 'ok' : 'idle'}">` +
     `${esc(STATE_TH[j.state] ?? j.state)}</span>${j.error ? ' <span class="muted">' + esc(j.error) + '</span>' : ''}</td>` +
     `<td style="text-align:right">${j.cancellable
-      ? `<button class="warn" onclick="cancelTicket('${esc(j.ticket)}')">ยกเลิก</button>` : ''}</td></tr>`
+      ? `<button class="warn" onclick="cancelTicket('${esc(j.ticket)}')">ยกเลิก</button>`
+      : j.state === 'printing' ? ''
+      : `<button class="go" onclick="reprint('${esc(j.ticket)}')">พิมพ์ซ้ำ</button>`}</td></tr>`
   ).join('') || '<tr><td colspan="5" class="empty">ยังไม่มีการสแกน</td></tr>'
 
   // settings (don't fight the user while they type)
@@ -268,8 +290,13 @@ async function tick() {
   if (!nameFocused) $('eventName').value = d.config.eventName ?? ''
 }
 
-window.killJob = id => post('/api/printer/job', { id }).then(tick)
-window.cancelTicket = t => post('/api/cancel/' + t).then(r => { if (!r.ok) fail(r.error); tick() })
+window.killJob = id => post('/api/printer/job', { id })
+  .then(r => { fail(r.ok ? (r.note ?? '') : (r.error ?? 'ลบงานไม่สำเร็จ'), r.ok); tick() })
+  .catch(() => fail('ติดต่อ server ไม่ได้'))
+window.cancelTicket = t => post('/api/cancel/' + t)
+  .then(r => { fail(r.ok ? '' : r.error); tick() })
+window.reprint = t => post('/api/reprint/' + t)
+  .then(r => { fail(r.ok ? 'สั่งพิมพ์ซ้ำคิว ' + t + ' แล้ว — คิวใหม่คือ ' + r.ticket : r.error, r.ok); tick() })
 
 tick(); setInterval(tick, 2000)
 </script>
