@@ -109,6 +109,7 @@
         <button id="pause" type="button">หยุดพิมพ์ชั่วคราว</button>
         <button id="resume" type="button" class="go">พิมพ์ต่อ</button>
         <button id="clear" type="button" class="warn">ล้างคิวเครื่องพิมพ์</button>
+        <button id="spooler" type="button" class="warn">รีสตาร์ทตัวจัดคิว</button>
       </div>
       <table><tbody id="pjobs"></tbody></table>
     </div>
@@ -210,6 +211,12 @@ $('refresh').onclick = () => { loadPrinters(); cmd('refresh') }
 $('pause').onclick  = () => cmd('pause')
 $('resume').onclick = () => cmd('resume')
 $('clear').onclick  = () => confirm('ลบงานที่ค้างในคิวเครื่องพิมพ์ทั้งหมด?') && cmd('clear')
+// Last resort for a job Windows will not let go of. It empties every queue on
+// the machine and needs someone at the laptop to confirm the Windows prompt.
+$('spooler').onclick = () => confirm(
+  ['รีสตาร์ทตัวจัดคิวของ Windows?',
+   'ใช้ตอนงานค้างลบไม่ออก — งานที่ค้างอยู่ทั้งหมดจะถูกล้าง',
+   'และอาจมีหน้าต่างของ Windows เด้งขึ้นมาให้กดยืนยันที่โน้ตบุ๊ก'].join('\n')) && cmd('spooler')
 
 /* ---- settings ---- */
 for (const [id, key] of [['inkSaver','inkSaver'], ['showTicket','showTicket'], ['dryRun','dryRun']])
@@ -254,7 +261,8 @@ async function tick() {
     pill.className = 'pill ' + (p.ok ? 'ok' : 'bad')
     pill.textContent = p.status
     $('pdetail').textContent = 'งานค้างในเครื่องพิมพ์ ' + p.jobs.length +
-      ' · ตรวจเมื่อ ' + p.at + (d.config.dryRun ? ' · โหมดซ้อม ไม่พิมพ์จริง' : '')
+      ' · ตรวจเมื่อ ' + p.at + (d.config.dryRun ? ' · โหมดซ้อม ไม่พิมพ์จริง' : '') +
+      (p.stuck ? ' · มีงานที่ Windows ลบไม่ออก — ปลุกเครื่องพิมพ์ หรือกดรีสตาร์ทตัวจัดคิว' : '')
   }
   $('pause').disabled = !p?.found || p.paused
   $('resume').disabled = !p?.found || !p.paused

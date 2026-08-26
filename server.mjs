@@ -412,10 +412,20 @@ app.post('/api/printer/:action', async (req, res) => {
     else if (action === 'resume') await printer.resume(name)
     else if (action === 'clear') await printer.cancelAll(name)
     else if (action === 'job') {
+      const r = await printer.cancelJob(name, req.body?.id)
       // 'gone' means Windows had already flushed it - worth saying so, because
-      // the row disappearing on its own otherwise looks like the click missed.
-      if (await printer.cancelJob(name, req.body?.id) === 'gone')
-        note = 'งานนี้ออกจากคิวไปก่อนแล้ว'
+      // the row vanishing on its own otherwise looks like the click missed.
+      if (r === 'gone') note = 'งานนี้ออกจากคิวไปก่อนแล้ว'
+      // 'stuck' means Windows accepted the delete and kept the job anyway. That
+      // is not our bug to fix and there is exactly one cure, so name it.
+      else if (r === 'stuck') note = 'Windows รับคำสั่งลบแล้วแต่ยังปล่อยงานไม่ได้ ' +
+        '(มักเป็นตอนเครื่องพิมพ์หลับหรือหลุด Wi-Fi) — ปลุกเครื่องพิมพ์ก่อน ' +
+        'ถ้ายังค้างให้กด "รีสตาร์ทตัวจัดคิว"'
+    }
+    else if (action === 'spooler') {
+      note = await printer.restartSpooler() === 'uac'
+        ? 'กด "Yes" ในหน้าต่างของ Windows ที่เด้งขึ้นมาเพื่อรีสตาร์ทตัวจัดคิว'
+        : 'รีสตาร์ทตัวจัดคิวแล้ว — งานที่ค้างทั้งหมดถูกล้าง'
     }
     else if (action !== 'refresh') return res.status(404).json({ ok: false, error: 'ไม่รู้จักคำสั่งนี้' })
     await sweepPrinter({ force: true })
