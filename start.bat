@@ -41,7 +41,13 @@ node -e "process.exit(require('fs').existsSync(require('puppeteer').executablePa
 if errorlevel 1 (
   echo   ยังไม่มี Chromium สำหรับจัดหน้ารายงาน - กำลังโหลด ต้องต่อเน็ต
   echo.
-  call npx --yes puppeteer browsers install chrome
+  rem เรียกสคริปต์ของ puppeteer ตรง ๆ จะได้ Chrome รุ่นที่มันผูกไว้พอดี ถ้าไปเรียก
+  rem ผ่าน npx มีโอกาสได้รุ่นล่าสุดที่ puppeteer ตัวนี้ไม่ได้มองหา แล้วโหลดเสียเปล่า
+  if exist "node_modules\puppeteer\install.mjs" (
+    node node_modules\puppeteer\install.mjs
+  ) else (
+    call npx --yes puppeteer browsers install chrome
+  )
   if errorlevel 1 goto :installfail
   echo.
 )
