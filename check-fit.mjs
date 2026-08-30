@@ -15,42 +15,55 @@ for (const col of COLUMNS) for (const sec of col) for (const r of sec.rows) {
 }
 for (const s of SUMMARY) values[s.id] = 5
 
+const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] })
+const rows = COLUMNS.flat().reduce((n, s) => n + s.rows.length, 0)
+let failed = false
+
+// Both languages, because the English captions are the longer ones and they get
+// the same one-page budget.
+for (const lang of ['TH', 'ENG']) {
 const html = buildHTML({
   ticket: '888', measuredAt: '31/12/2026 23:59', values,
   eventName: CONFIG.eventName + ' — ทดสอบชื่องานที่ยาวมากเพื่อกันบรรทัดตก', inkSaver: CONFIG.inkSaver,
   showTicket: CONFIG.showTicket !== false,
+  lang,
 })
 
-const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] })
 const page = await browser.newPage()
 await page.setViewport({ width: 794, height: 1123 })
 await page.setContent(html, { waitUntil: 'load' })
+await page.evaluate(() => document.fonts.ready)
 const h = await page.evaluate(() => Math.round(document.querySelector('.smc').getBoundingClientRect().bottom))
-// Any element whose content is taller or wider than its box is printing text
-// on top of its neighbour. Fixed heights sized for Latin do this constantly once
-// Thai vowels and tone marks are involved, so check every box, every render.
+// Any box that hides what does not fit is a box that can swallow text, and Thai
+// stacks vowels and tone marks well above the x-height, so a line box sized for
+// Latin loses them. Only boxes that actually clip count: .nm and .en bleed 3px
+// past their row on purpose (padding out, margin back in) to give those marks
+// room inside their own overflow:hidden, and that bleed is not a fault.
 const clipped = await page.evaluate(() => {
   const bad = []
   for (const el of document.querySelectorAll('body *')) {
     if (el.tagName === 'IMG') continue
     const dy = el.scrollHeight - el.clientHeight
     const dx = el.scrollWidth - el.clientWidth
-    if (el.clientHeight > 0 && dy > 1)
+    if (el.clientHeight > 0 && dy > 1 && getComputedStyle(el).overflowY !== 'visible')
       bad.push(`ล้นลง ${dy}px: ${el.className || el.tagName} "${el.textContent.trim().slice(0, 26)}"`)
     else if (el.clientWidth > 0 && dx > 1 && getComputedStyle(el).textOverflow !== 'ellipsis')
       bad.push(`ล้นข้าง ${dx}px: ${el.className || el.tagName} "${el.textContent.trim().slice(0, 26)}"`)
   }
   return bad
 })
-await page.screenshot({ path: 'check-fit.png', fullPage: true })
-await browser.close()
+await page.screenshot({ path: `check-fit-${lang}.png`, fullPage: true })
+await page.close()
 
-const rows = COLUMNS.flat().reduce((n, s) => n + s.rows.length, 0)
-console.log(`กรณีข้อมูลครบ ${rows} แถว -> สูง ${h}px จากพื้นที่ ${A4_USABLE}px (เหลือ ${A4_USABLE - h}px)`)
+console.log(`[${lang}] กรณีข้อมูลครบ ${rows} แถว -> สูง ${h}px จากพื้นที่ ${A4_USABLE}px (เหลือ ${A4_USABLE - h}px)`)
 if (clipped.length) {
   console.log('!! มีข้อความล้นกรอบ ' + clipped.length + ' จุด:')
   for (const c of clipped) console.log('   - ' + c)
+  failed = true
 }
-if (h > A4_USABLE) { console.log('!! เกิน 1 หน้า'); process.exit(1) }
-if (clipped.length) process.exit(1)
-console.log('OK - อยู่ใน 1 หน้า')
+if (h > A4_USABLE) { console.log('!! เกิน 1 หน้า'); failed = true }
+}
+
+await browser.close()
+if (failed) process.exit(1)
+console.log('OK - อยู่ใน 1 หน้า ทั้งสองภาษา')

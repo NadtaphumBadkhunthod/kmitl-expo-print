@@ -1,6 +1,6 @@
 // Render one report to preview.pdf without touching the printer.
 //
-//   node preview.mjs "<url or payload from a QR>"
+//   node preview.mjs "<url or payload from a QR>" [TH|ENG|BOTH] [mono]
 //
 // Use this to check the layout, the Thai fonts and the ink-saver look before the
 // event, and to sanity-check a QR that the station refused.
@@ -16,13 +16,20 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url))
 const CONFIG = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'))
 
 const scanned = process.argv[2]
+const lang = (process.argv[3] || 'TH').toUpperCase()
+// Black and white follows config.json unless the third argument overrides it,
+// which is the point of the flag: seeing the grey sheet without switching the
+// booth over to it first.
+const mono = process.argv[4] ? /^(1|on|mono|true)$/i.test(process.argv[4]) : !!CONFIG.mono
+
 if (!scanned) {
-  console.error('ใช้: node preview.mjs "<ลิงก์จาก QR>"')
+  console.error('ใช้: node preview.mjs "<ลิงก์จาก QR>" [TH|ENG|BOTH] [mono]')
   process.exit(1)
 }
 
 const { measuredAt, values } = decode(scanned)
-console.log('วัดเมื่อ:', measuredAt, '| ถอดค่าได้', Object.keys(values).length, 'ค่า')
+console.log('วัดเมื่อ:', measuredAt, '| ถอดค่าได้', Object.keys(values).length, 'ค่า',
+            '| โหมดภาษา:', lang, mono ? '| ขาวดำ' : '')
 
 const html = buildHTML({
   ticket: '000',
@@ -30,7 +37,9 @@ const html = buildHTML({
   values,
   eventName: CONFIG.eventName,
   inkSaver: CONFIG.inkSaver,
+  mono,
   showTicket: CONFIG.showTicket !== false,
+  lang,
 })
 
 fs.writeFileSync(path.join(ROOT, 'preview.html'), html)

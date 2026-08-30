@@ -25,6 +25,10 @@ const { print: printPDF } = pdfToPrinter
 const ROOT = path.dirname(fileURLToPath(import.meta.url))
 const CONFIG_FILE = path.join(ROOT, 'config.json')
 const LOG = path.join(ROOT, 'logs', 'scans.csv')
+// Every sheet the booth printed, kept for reprints and for checking afterwards.
+// Made once at startup rather than on every render.
+const HISTORY = path.join(ROOT, 'logs', 'history')
+fs.mkdirSync(HISTORY, { recursive: true })
 
 let CONFIG = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'))
 const saveConfig = () =>
@@ -33,7 +37,8 @@ const saveConfig = () =>
 /* ---------------------------------------------------------------- state --- */
 
 let ticketSeq = 0
-const byPayload = new Map()   // payload -> job, for duplicate scans
+let lastPayload = null        // for duplicate scans
+let lastPayloadJob = null
 const byTicket = new Map()    // ticket  -> job, for reprints and cancels
 const pending = []            // decoded, waiting to be rendered
 const ready = []              // rendered, waiting for the printer
@@ -56,14 +61,22 @@ async function renderPDF(job) {
     values: job.values,
     eventName: CONFIG.eventName,
     inkSaver: CONFIG.inkSaver,
+    mono: !!CONFIG.mono,
     showTicket: CONFIG.showTicket !== false,
+    lang: job.lang || 'TH',
   })
+
+  // The source of a report is a third of a megabyte of embedded fonts and
+  // artwork, and 400 visitors' worth of it is 130MB nobody will ever open - the
+  // PDF next to it says the same thing. Off unless something needs debugging.
+  if (CONFIG.keepHTML)
+    fs.writeFileSync(path.join(HISTORY, job.ticket + '.html'), html)
 
   const page = await browser.newPage()
   try {
     await page.setContent(html, { waitUntil: 'load' })
     await page.evaluate(() => document.fonts.ready)   // never print with fallback glyphs
-    const file = path.join(ROOT, 'tmp', job.ticket + '.pdf')
+    const file = path.join(HISTORY, job.ticket + '.pdf')
     await page.pdf({ path: file, format: 'A4', printBackground: true })
     return file
   } finally {
@@ -120,12 +133,15 @@ async function pumpPrint() {
       job.state = 'printing'
       if (CONFIG.dryRun) await new Promise(r => setTimeout(r, 400))
       else {
-        // "Microsoft Print to PDF" and friends open a Save-As dialog that nobody
-        // is standing in front of, so the print just hangs and then fails. Say so
-        // rather than letting SumatraPDF's command line be the error message.
-        if (lastPrinterState?.virtual)
-          throw new Error('"' + CONFIG.printer + '" พิมพ์ลงไฟล์ ไม่ออกกระดาษ — เลือกเครื่องพิมพ์จริงที่หน้าควบคุม')
-        await printPDF(job.file, { printer: CONFIG.printer, ...(CONFIG.printOptions ?? {}) })
+        // The sheet is already drawn in greys; monochrome tells the driver to
+        // put it on paper with the black tank instead of mixing a composite
+        // black out of the colour ones. Set last, so the switch on the control
+        // page always beats a stale printOptions in config.json.
+        await printPDF(job.file, {
+          printer: CONFIG.printer,
+          ...(CONFIG.printOptions ?? {}),
+          ...(CONFIG.mono ? { monochrome: true } : {}),
+        })
       }
       finish(job, null)
     } catch (err) {
@@ -139,6 +155,9 @@ async function pumpPrint() {
 }
 
 function dropFile(job) {
+  // logs/history is an archive of what the booth handed out, so the PDF stays
+  // put by default. It is a visitor's health report, though, so keepPDFs:false
+  // still means what it says.
   if (job.file && !CONFIG.keepPDFs) fs.unlink(job.file, () => {})
   job.file = undefined
 }
@@ -206,7 +225,7 @@ const liveDevices = () =>
 const app = express()
 app.set('trust proxy', true)
 app.use(express.json({ limit: '64kb' }))
-app.use(express.static(path.join(ROOT, 'public'), { maxAge: '1h' }))
+app.use(express.static(path.join(ROOT, 'public')))
 
 app.post('/api/hello', (req, res) => {
   const d = touchDevice(req, req.body)
@@ -215,6 +234,7 @@ app.post('/api/hello', (req, res) => {
 
 app.post('/api/print', (req, res) => {
   const scanned = String(req.body?.scanned ?? '').trim()
+  const lang = String(req.body?.lang ?? 'TH').toUpperCase()
   const device = touchDevice(req, req.body)
   if (!scanned) return res.status(400).json({ ok: false, error: 'ไม่มีข้อมูลที่สแกน' })
 
@@ -231,7 +251,7 @@ app.post('/api/print', (req, res) => {
   // But only when that first attempt actually produced paper. A failed or
   // cancelled job used to stay in this map, so the one visitor whose print went
   // wrong was the one person the station then refused to serve.
-  const prior = byPayload.get(decoded.payload)
+  const prior = (lastPayload === decoded.payload) ? lastPayloadJob : null
   const retryable = prior && (prior.state === 'failed' || prior.state === 'cancelled')
   if (prior && !retryable && !req.body?.force) {
     stats.dup++
@@ -246,9 +266,11 @@ app.post('/api/print', (req, res) => {
     values: decoded.values,
     state: 'queued',
     device: device?.id ?? null,
+    lang,
   }
   if (device) device.scans++
-  byPayload.set(decoded.payload, job)
+  lastPayload = decoded.payload
+  lastPayloadJob = job
   byTicket.set(job.ticket, job)
   enqueue(job)
 
@@ -280,13 +302,14 @@ app.post('/api/cancel/:ticket', (req, res) => {
 
 app.post('/api/reprint/:ticket', (req, res) => {
   const src = byTicket.get(req.params.ticket)
+  const lang = String(req.body?.lang ?? src?.lang ?? 'TH').toUpperCase()
   if (!src) return res.status(404).json({ ok: false, error: 'ไม่พบคิวนี้' })
   // Queueing a second copy of something still waiting to print just wastes a
   // sheet; that job has not had its chance yet.
   if (cancellable(src) || src.state === 'printing')
     return res.status(409).json({ ok: false, error: 'คิวนี้ยังรอพิมพ์อยู่' })
   const job = { ...src, ticket: pad(++ticketSeq), at: new Date().toLocaleString('th-TH'),
-                state: 'queued', file: undefined, error: undefined }
+                state: 'queued', file: undefined, error: undefined, lang }
   byTicket.set(job.ticket, job)
   enqueue(job)
   res.json({ ok: true, ticket: job.ticket, reprintOf: src.ticket, queued: queueDepth() })
@@ -348,6 +371,7 @@ async function sweepPrinter({ force = false } = {}) {
 app.get('/api/control', (_req, res) => res.json({
   config: {
     printer: CONFIG.printer || '', eventName: CONFIG.eventName, inkSaver: !!CONFIG.inkSaver,
+    mono: !!CONFIG.mono,
     dryRun: !!CONFIG.dryRun, showTicket: CONFIG.showTicket !== false,
   },
   stats: { ...stats, queued: queueDepth() },
@@ -395,7 +419,7 @@ app.post('/api/config', async (req, res) => {
     // a Save-As dialog reads this state, and a scan can arrive immediately.
     await sweepPrinter({ force: true })
   }
-  for (const k of ['inkSaver', 'dryRun', 'showTicket']) if (k in patch) CONFIG[k] = !!patch[k]
+  for (const k of ['inkSaver', 'mono', 'dryRun', 'showTicket']) if (k in patch) CONFIG[k] = !!patch[k]
   if (typeof patch.eventName === 'string') CONFIG.eventName = patch.eventName.slice(0, 60)
   saveConfig()
   console.log('ตั้งค่าใหม่:', JSON.stringify(patch))

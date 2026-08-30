@@ -6,11 +6,14 @@ certs/
 # Rendered reports on their way to the printer.
 tmp/
 
-# Every scanned QR, which means every visitor's health results. Never commit.
-logs/*.csv
+# Every scanned QR, and under history/ the printed report itself - which means
+# every visitor's health results. Never commit.
+logs/
 
 # Local render output - preview.pdf holds a real person's measurements.
 preview.pdf
 preview.png
 preview.html
-check-fit.png
+*preview*.pdf
+*preview*.png
+check-fit*.png

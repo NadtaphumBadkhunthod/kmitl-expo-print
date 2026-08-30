@@ -141,6 +141,7 @@
       </div>
       <div class="opts">
         <label class="sw"><input type="checkbox" id="inkSaver"> ประหยัดหมึก</label>
+        <label class="sw"><input type="checkbox" id="mono"> ขาวดำ (ไม่ใช้หมึกสี)</label>
         <label class="sw"><input type="checkbox" id="showTicket"> พิมพ์เลขคิวบนใบ</label>
         <label class="sw"><input type="checkbox" id="dryRun"> โหมดซ้อม (ไม่พิมพ์จริง)</label>
       </div>
@@ -219,7 +220,8 @@ $('spooler').onclick = () => confirm(
    'และอาจมีหน้าต่างของ Windows เด้งขึ้นมาให้กดยืนยันที่โน้ตบุ๊ก'].join('\n')) && cmd('spooler')
 
 /* ---- settings ---- */
-for (const [id, key] of [['inkSaver','inkSaver'], ['showTicket','showTicket'], ['dryRun','dryRun']])
+for (const [id, key] of [['inkSaver','inkSaver'], ['mono','mono'],
+                         ['showTicket','showTicket'], ['dryRun','dryRun']])
   $(id).onchange = e => post('/api/config', { [key]: e.target.checked }).then(() => tick())
 $('saveName').onclick = () =>
   post('/api/config', { eventName: $('eventName').value }).then(() => tick())
@@ -288,11 +290,15 @@ async function tick() {
     `<td style="text-align:right">${j.cancellable
       ? `<button class="warn" onclick="cancelTicket('${esc(j.ticket)}')">ยกเลิก</button>`
       : j.state === 'printing' ? ''
-      : `<button class="go" onclick="reprint('${esc(j.ticket)}')">พิมพ์ซ้ำ</button>`}</td></tr>`
+      : `<span style="font-size:12px; color:#8797ac; margin-right:6px">พิมพ์ซ้ำ:</span>
+         <button class="go" style="padding:4px 8px; font-size:12px" onclick="reprint('${esc(j.ticket)}', 'TH')">TH</button>
+         <button class="go" style="padding:4px 8px; font-size:12px" onclick="reprint('${esc(j.ticket)}', 'ENG')">EN</button>
+         <button class="go" style="padding:4px 8px; font-size:12px" onclick="reprint('${esc(j.ticket)}', 'BOTH')">Both</button>`}</td></tr>`
   ).join('') || '<tr><td colspan="5" class="empty">ยังไม่มีการสแกน</td></tr>'
 
   // settings (don't fight the user while they type)
   $('inkSaver').checked = d.config.inkSaver
+  $('mono').checked = d.config.mono
   $('showTicket').checked = d.config.showTicket
   $('dryRun').checked = d.config.dryRun
   if (!nameFocused) $('eventName').value = d.config.eventName ?? ''
@@ -303,8 +309,10 @@ window.killJob = id => post('/api/printer/job', { id })
   .catch(() => fail('ติดต่อ server ไม่ได้'))
 window.cancelTicket = t => post('/api/cancel/' + t)
   .then(r => { fail(r.ok ? '' : r.error); tick() })
-window.reprint = t => post('/api/reprint/' + t)
-  .then(r => { fail(r.ok ? 'สั่งพิมพ์ซ้ำคิว ' + t + ' แล้ว — คิวใหม่คือ ' + r.ticket : r.error, r.ok); tick() })
+window.reprint = (t, lang = 'TH') => {
+  post('/api/reprint/' + t, { lang })
+    .then(r => { fail(r.ok ? 'สั่งพิมพ์ซ้ำคิว ' + t + ' แบบ ' + lang + ' แล้ว — คิวใหม่คือ ' + r.ticket : r.error, r.ok); tick() })
+}
 
 tick(); setInterval(tick, 2000)
 </script>

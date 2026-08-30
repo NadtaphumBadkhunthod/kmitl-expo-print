@@ -58,6 +58,9 @@
   #fatal { position:fixed; inset:0; z-index:6; display:none; place-items:center; padding:28px;
            background:#0f172a; text-align:center; font-size:15px; line-height:1.65; }
   #fatal.show { display:grid; }
+
+  .lang-btn { padding:10px 20px; border-radius:8px; border:2px solid #38bdf8; background:#0ea5e9; color:#f0f9ff; font-family:inherit; font-size:16px; font-weight:700; cursor:pointer; }
+  .lang-btn:active { background:#0284c7; }
 </style>
 </head>
 <body>
@@ -78,6 +81,11 @@
   <div id="panel">
     <div id="ticket"></div>
     <div id="msg">เล็ง QR ในกรอบ — พิมพ์อัตโนมัติ</div>
+    <div id="lang-select" style="display:none; margin:10px auto; gap:10px; justify-content:center;">
+      <button class="lang-btn" data-lang="TH">TH (<span id="lang-timer">3</span>)</button>
+      <button class="lang-btn" data-lang="ENG">ENG</button>
+      <button class="lang-btn" data-lang="BOTH">Both</button>
+    </div>
     <button id="cancel" type="button">ยกเลิกคิวนี้</button>
     <div id="hint">ไม่ต้องกดอะไร &middot; แตะค้างที่พื้นหลัง 1 วินาที = พิมพ์ซ้ำ</div>
   </div>
@@ -114,6 +122,8 @@ let lastScan = { text: '', at: 0 }   // suppress the camera's own repeat detecti
 let current = null                   // ticket currently shown, if still cancellable
 let lastTicket = null
 let busy = false
+let langTimeout = null
+let lastSentText = null
 
 /* ------------------------------------------------------------- feedback --- */
 
@@ -158,12 +168,14 @@ const post = (path, body) => fetch(path, {
   body: JSON.stringify({ device: DEVICE, ...body }),
 }).then(r => r.json().then(j => ({ status: r.status, ...j })))
 
-async function send(scanned) {
+async function send(scanned, lang) {
+  $('lang-select').style.display = 'none'
   busy = true
+  lastSentText = scanned
   showCancel(null)
   $('msg').textContent = 'กำลังส่ง…'
   try {
-    const data = await post('/api/print', { scanned })
+    const data = await post('/api/print', { scanned, lang })
     if (!data.ok) {
       signal('err', null, data.error || 'ผิดพลาด')
     } else if (data.duplicate) {
@@ -247,13 +259,70 @@ setInterval(() => post('/api/hello').catch(() => {}), 6000)
 
 /* -------------------------------------------------------------- scanning --- */
 
+function isValidQR(scanned) {
+  try {
+    const s = String(scanned).trim()
+    let payload = s
+    try {
+      const u = new URL(s)
+      const r = u.searchParams.get('r')
+      if (r) payload = r
+    } catch {
+      const m = s.match(/[?&]r=([^&\s]+)/)
+      if (m) payload = decodeURIComponent(m[1])
+    }
+    const decoded = atob(decodeURIComponent(payload))
+    return decoded.startsWith('NQ1')
+  } catch {
+    return false
+  }
+}
+
 function onDetect(text) {
   const t = Date.now()
-  // The camera reports the same code every frame while it is in view; only the
-  // first one is a new visitor.
   if (busy || (text === lastScan.text && t - lastScan.at < 4000)) return
   lastScan = { text, at: t }
-  send(text)
+  
+  if (!isValidQR(text) || text === lastSentText) {
+    // If it's obviously not a valid NuraQR, or it's the exact same QR we just sent,
+    // skip the language picker and send immediately so the server can display the error.
+    send(text, 'TH')
+    return
+  }
+
+  busy = true
+  $('lang-select').style.display = 'flex'
+  beep(1050, 60) // soft beep for detection
+  $('msg').textContent = 'เลือกภาษา (อัตโนมัติใน 3 วิ)'
+  $('msg').style.color = '#38bdf8'
+  flash.style.background = '#38bdf8'
+  flash.classList.add('go')
+  setTimeout(() => flash.classList.remove('go'), 100)
+  
+  let timeLeft = 3
+  $('lang-timer').textContent = timeLeft
+  
+  const finishSelect = (lang) => {
+    clearInterval(langTimeout)
+    $('lang-select').style.display = 'none'
+    send(text, lang)
+  }
+  
+  if (langTimeout) clearInterval(langTimeout)
+  langTimeout = setInterval(() => {
+    timeLeft -= 1
+    $('lang-timer').textContent = timeLeft
+    if (timeLeft <= 0) {
+      finishSelect('TH')
+    }
+  }, 1000)
+  
+  document.querySelectorAll('.lang-btn').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation()
+      finishSelect(btn.getAttribute('data-lang'))
+    }
+  })
 }
 
 function fatal(html) { $('fatal').innerHTML = html; $('fatal').classList.add('show') }

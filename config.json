@@ -1,9 +1,11 @@
 {
   "eventName": "KMITL EXPO 2026",
-  "printer": "HP9C8AB3 (HP Smart Tank 510 series)",
+  "printer": "EPSON L405 Series",
   "port": 8443,
-  "inkSaver": false,
-  "keepPDFs": false,
+  "inkSaver": true,
+  "mono": false,
+  "keepPDFs": true,
+  "keepHTML": false,
   "printOptions": {
     "paperSize": "A4",
     "scale": "noscale"
