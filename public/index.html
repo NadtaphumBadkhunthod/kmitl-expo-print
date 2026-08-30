@@ -87,7 +87,7 @@
       <button class="lang-btn" data-lang="BOTH">Both</button>
     </div>
     <button id="cancel" type="button">ยกเลิกคิวนี้</button>
-    <div id="hint">ไม่ต้องกดอะไร &middot; แตะค้างที่พื้นหลัง 1 วินาที = พิมพ์ซ้ำ</div>
+    <div id="hint">ไม่ต้องกดอะไร &middot; เล็ง QR ค้างไว้ได้เลย</div>
   </div>
 </div>
 
@@ -120,7 +120,6 @@ const DEVICE = (() => {
 
 let lastScan = { text: '', at: 0 }   // suppress the camera's own repeat detections
 let current = null                   // ticket currently shown, if still cancellable
-let lastTicket = null
 let busy = false
 let langTimeout = null
 let lastSentText = null
@@ -180,10 +179,8 @@ async function send(scanned, lang) {
       signal('err', null, data.error || 'ผิดพลาด')
     } else if (data.duplicate) {
       signal('dup', data.ticket, 'สแกนซ้ำ — พิมพ์ไปแล้ว')
-      lastTicket = data.ticket
     } else {
       signal('ok', data.ticket, data.queued > 1 ? 'เข้าคิว (รออีก ' + (data.queued - 1) + ')' : 'กำลังพิมพ์')
-      lastTicket = data.ticket
       showCancel(data.ticket)
       // The cancel window closes the moment the job reaches the spooler.
       setTimeout(() => { if (current === data.ticket) showCancel(null) }, 9000)
@@ -210,21 +207,13 @@ $('cancel').onclick = async e => {
   refresh()
 }
 
+// A long press used to reprint the last sheet. It is gone: this screen is held
+// at arm's length all day and the gesture was one accidental rest of a thumb
+// away from an extra sheet of somebody's health results. Reprints live on the
+// control page now, where whoever presses can see which queue number they are
+// reprinting. The context menu stays suppressed - a long press should still do
+// nothing at all, not pop up "select / copy".
 $('panel').addEventListener('contextmenu', e => e.preventDefault())
-let holdTimer
-const holdStart = e => {
-  if (e.target.id === 'cancel') return
-  holdTimer = setTimeout(async () => {
-    if (!lastTicket) return
-    navigator.vibrate?.(120)
-    const r = await post('/api/reprint/' + lastTicket).catch(() => null)
-    if (r?.ok) { signal('ok', r.ticket, 'พิมพ์ซ้ำของคิว ' + r.reprintOf); showCancel(r.ticket) }
-    else signal('err', null, 'สั่งพิมพ์ซ้ำไม่สำเร็จ')
-  }, 1000)
-}
-const holdEnd = () => clearTimeout(holdTimer)
-$('panel').addEventListener('pointerdown', holdStart)
-for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) $('panel').addEventListener(ev, holdEnd)
 
 /* --------------------------------------------------------------- status --- */
 
