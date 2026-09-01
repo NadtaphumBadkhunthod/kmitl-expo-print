@@ -40,6 +40,24 @@
             border:2px solid #f87171; background:#7f1d1d; color:#fecaca;
             font-family:inherit; font-size:16px; font-weight:700; }
   #cancel.show { display:block; }
+  #reprint { display:block; margin:10px auto 0; padding:8px 18px; border-radius:999px;
+             border:1px solid #ffffff33; background:#00000055; color:#cbd5e1;
+             font-family:inherit; font-size:14px; font-weight:600; }
+  #reprint[hidden] { display:none; }
+
+  /* Reprinting costs a sheet of somebody's health results, so the button only
+     arms the question - the confirm box is what actually spends the paper. */
+  #confirm { position:fixed; inset:0; z-index:4; display:none; place-items:center;
+             padding:26px; background:#0f172acc; }
+  #confirm.show { display:grid; }
+  #confirm .box { background:#1e293b; border-radius:18px; padding:24px 22px 20px;
+                  text-align:center; max-width:340px; width:100%; }
+  #confirm b { display:block; font-size:21px; }
+  #confirm p { font-size:14.5px; opacity:.7; margin:8px 0 20px; line-height:1.6; }
+  #confirm button { display:block; width:100%; padding:15px; border-radius:12px;
+                    border:none; font-family:inherit; font-size:17px; font-weight:700; }
+  #confirm-yes { background:#22c55e; color:#052e16; }
+  #confirm-no { margin-top:10px; background:#334155; color:#e2e8f0; }
 
   #flash { position:fixed; inset:0; opacity:0; pointer-events:none; transition:opacity .18s; }
   #flash.go { opacity:.42; transition:none; }
@@ -87,6 +105,7 @@
       <button class="lang-btn" data-lang="BOTH">Both</button>
     </div>
     <button id="cancel" type="button">ยกเลิกคิวนี้</button>
+    <button id="reprint" type="button" hidden>พิมพ์ซ้ำใบล่าสุด</button>
     <div id="hint">ไม่ต้องกดอะไร &middot; เล็ง QR ค้างไว้ได้เลย</div>
   </div>
 </div>
@@ -97,6 +116,15 @@
     <p>กดเริ่ม แล้วเล็งกล้องไปที่ QR ของผู้เข้าชม<br>ระบบจะสั่งพิมพ์ให้อัตโนมัติ</p>
     <button id="start" type="button">เริ่มสแกน</button>
     <small>ยกเลิกได้ทันหากยังไม่ถึงคิว<br>เครื่องนี้จะแสดงในหน้าควบคุมบนโน้ตบุ๊ก</small>
+  </div>
+</div>
+
+<div id="confirm">
+  <div class="box">
+    <b id="confirm-t">พิมพ์ซ้ำ</b>
+    <p>จะสั่งพิมพ์ใบเดิมอีก 1 แผ่น</p>
+    <button id="confirm-yes" type="button">ยืนยัน พิมพ์ซ้ำ</button>
+    <button id="confirm-no" type="button">ไม่พิมพ์</button>
   </div>
 </div>
 
@@ -123,6 +151,7 @@ let current = null                   // ticket currently shown, if still cancell
 let busy = false
 let langTimeout = null
 let lastSentText = null
+let lastTicket = null                // last sheet this phone printed, for a reprint
 
 /* ------------------------------------------------------------- feedback --- */
 
@@ -154,6 +183,12 @@ function signal(kind, ticket, message) {
   $('msg').style.color = wash
 }
 
+function showReprint(ticket) {
+  lastTicket = ticket
+  $('reprint').hidden = !ticket
+  if (ticket) $('reprint').textContent = 'พิมพ์ซ้ำคิว ' + ticket
+}
+
 function showCancel(ticket) {
   current = ticket
   $('cancel').classList.toggle('show', !!ticket)
@@ -179,9 +214,11 @@ async function send(scanned, lang) {
       signal('err', null, data.error || 'ผิดพลาด')
     } else if (data.duplicate) {
       signal('dup', data.ticket, 'สแกนซ้ำ — พิมพ์ไปแล้ว')
+      showReprint(data.ticket)
     } else {
       signal('ok', data.ticket, data.queued > 1 ? 'เข้าคิว (รออีก ' + (data.queued - 1) + ')' : 'กำลังพิมพ์')
       showCancel(data.ticket)
+      showReprint(data.ticket)
       // The cancel window closes the moment the job reaches the spooler.
       setTimeout(() => { if (current === data.ticket) showCancel(null) }, 9000)
     }
@@ -201,19 +238,52 @@ $('cancel').onclick = async e => {
   const t = current
   if (!t) return
   showCancel(null)
+  if (lastTicket === t) showReprint(null)   // never printed, nothing to repeat
   const r = await post('/api/cancel/' + t).catch(() => null)
   if (r?.ok) signal('dup', t, 'ยกเลิกแล้ว')
   else signal('err', t, r?.error || 'ยกเลิกไม่สำเร็จ')
   refresh()
 }
 
-// A long press used to reprint the last sheet. It is gone: this screen is held
-// at arm's length all day and the gesture was one accidental rest of a thumb
-// away from an extra sheet of somebody's health results. Reprints live on the
-// control page now, where whoever presses can see which queue number they are
-// reprinting. The context menu stays suppressed - a long press should still do
-// nothing at all, not pop up "select / copy".
+// Reprinting is a button, never a gesture. This screen is held at arm's length
+// all day, and a long press was one resting thumb away from an extra sheet of
+// somebody's health results - so the tap only opens the question, and the
+// confirm box is what spends the paper. The context menu stays suppressed: a
+// long press should still do nothing at all, not pop up "select / copy".
 $('panel').addEventListener('contextmenu', e => e.preventDefault())
+
+function closeConfirm() {
+  $('confirm').classList.remove('show')
+  busy = false
+}
+
+$('reprint').onclick = e => {
+  e.stopPropagation()
+  if (!lastTicket) return
+  busy = true                       // hold the scanner while the question is up
+  $('confirm-t').textContent = 'พิมพ์ซ้ำคิว ' + lastTicket
+  $('confirm').classList.add('show')
+}
+
+$('confirm-no').onclick = closeConfirm
+$('confirm').onclick = e => { if (e.target === $('confirm')) closeConfirm() }
+
+$('confirm-yes').onclick = async () => {
+  const t = lastTicket
+  $('confirm').classList.remove('show')
+  if (!t) return closeConfirm()
+  $('msg').textContent = 'กำลังส่ง…'
+  // No lang: the server reuses whatever language the original sheet was in.
+  const r = await post('/api/reprint/' + t).catch(() => null)
+  if (r?.ok) {
+    signal('ok', r.ticket, 'พิมพ์ซ้ำของคิว ' + t)
+    showReprint(r.ticket)
+  } else {
+    signal('err', t, r?.error || 'พิมพ์ซ้ำไม่สำเร็จ')
+  }
+  refresh()
+  setTimeout(() => { busy = false }, 900)
+}
 
 /* --------------------------------------------------------------- status --- */
 
